@@ -1,0 +1,6 @@
+{
+  "name": "Mobile Store - تطبيق المتجر",
+  "description": "تطبيق موبايل لإدارة منتجات المتجر مع مساعد ذكاء اصطناعي ومصادقة جوجل وذاكرة دائمة",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

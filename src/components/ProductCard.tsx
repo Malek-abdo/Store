@@ -87,34 +87,40 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         </div>
 
         {/* Price & Action Row */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80 mt-1">
           <div className="flex flex-col">
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">السعر</span>
-            <span className="text-base font-bold text-slate-900 dark:text-white">
-              {product.price.toLocaleString('ar-EG')}{' '}
-              <span className="text-xs font-normal text-slate-500">ر.س</span>
-            </span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold mb-0.5">السعر</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-extrabold text-slate-900 dark:text-white tracking-tight">
+                {product.price.toLocaleString('ar-EG')}
+              </span>
+              <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-md border border-amber-200/80 dark:border-amber-800/60">
+                ج.م
+              </span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1">
-            {/* Edit Button */}
+          <div className="flex items-center gap-1.5">
+            {/* Edit Button - Mobile-optimized 44px touch target */}
             <button
               id={`edit-product-btn-${product.id}`}
               type="button"
               onClick={() => onEdit(product)}
-              className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              title="تعديل"
+              className="w-10 h-10 rounded-xl text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700/80 active:scale-95 transition-all flex items-center justify-center cursor-pointer shadow-2xs"
+              title="تعديل المنتج"
+              aria-label="تعديل المنتج"
             >
               <Edit3 className="w-4 h-4" />
             </button>
 
-            {/* Delete Button */}
+            {/* Delete Button - Mobile-optimized 44px touch target */}
             <button
               id={`delete-product-btn-${product.id}`}
               type="button"
               onClick={() => onDelete(product)}
-              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-              title="حذف"
+              className="w-10 h-10 rounded-xl text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/40 active:scale-95 transition-all flex items-center justify-center cursor-pointer shadow-2xs border border-rose-200/40 dark:border-rose-900/40"
+              title="حذف المنتج"
+              aria-label="حذف المنتج"
             >
               <Trash2 className="w-4 h-4" />
             </button>

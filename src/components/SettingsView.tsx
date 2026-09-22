@@ -9,10 +9,16 @@ import {
   Check, 
   ShieldCheck,
   Camera,
-  RotateCcw
+  RotateCcw,
+  Smartphone,
+  Download,
+  Sparkles,
+  Chrome
 } from 'lucide-react';
 import { UserProfile, StoreSettings } from '../types';
 import { getGoogleAvatar } from '../lib/firebase';
+import { ApkDownloadModal } from './ApkDownloadModal';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface SettingsViewProps {
   user: UserProfile;
@@ -34,7 +40,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const [storeNameInput, setStoreNameInput] = useState(settings.storeName);
   const [savedNotification, setSavedNotification] = useState(false);
+  const [isApkModalOpen, setIsApkModalOpen] = useState(false);
+  const { isInstallable, install } = usePWAInstall();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDownloadApk = async () => {
+    if (isInstallable) {
+      const res = await install();
+      if (!res) {
+        setIsApkModalOpen(true);
+      }
+    } else {
+      setIsApkModalOpen(true);
+    }
+  };
 
   const handleSaveStoreName = () => {
     if (storeNameInput.trim()) {
@@ -195,8 +214,98 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
         <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300">
-          نشط
+              نشط
         </span>
+      </div>
+
+      {/* Mobile Google WebAPK App Download & Install Card */}
+      <div className="bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {/* App Icon Preview with Luxury Border */}
+            <div className="relative">
+              <img
+                src="/logo.png"
+                alt="أيقونة المتجر"
+                className="w-12 h-12 rounded-2xl object-cover shadow-sm border border-slate-200 dark:border-slate-700 shrink-0"
+              />
+              <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 flex items-center justify-center text-[8px] text-white">
+                ✓
+              </span>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-extrabold text-slate-900 dark:text-white block">
+                  تنزيل وتثبيت التطبيق من Google
+                </span>
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 flex items-center gap-1">
+                  <Chrome className="w-2.5 h-2.5" />
+                  <span>Google WebAPK</span>
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                تثبيت مباشر وسريع من Google Chrome يعمل كتطبيق هاتف حقيقي بشاشة كاملة
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* App Icons Showcase (Internal & External Launcher) */}
+        <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-[10px]">
+          <div className="flex items-center gap-2">
+            <img
+              src="/logo.png"
+              alt="أيقونة التطبيق"
+              className="w-8 h-8 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+            />
+            <div>
+              <span className="font-bold text-slate-800 dark:text-white block text-[11px]">
+                أيقونة التطبيق
+              </span>
+              <span className="text-slate-400 block text-[9px]">داخل النظام</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 border-r border-slate-100 dark:border-slate-800 pr-2">
+            <img
+              src="/icon.png"
+              alt="الأيقونة الخارجية"
+              className="w-8 h-8 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+            />
+            <div>
+              <span className="font-bold text-slate-800 dark:text-white block text-[11px]">
+                الأيقونة الخارجية
+              </span>
+              <span className="text-slate-400 block text-[9px]">الشاشة الرئيسية</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Highlight points */}
+        <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-600 dark:text-slate-300">
+          <div className="flex items-center gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span>يعمل بدون شريط متصفح (ملء الشاشة)</span>
+          </div>
+          <div className="flex items-center gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
+            <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <span>خفيف وسريع ويدعم العمل بدون نت</span>
+          </div>
+        </div>
+
+        {/* Action Button: Single Direct Google Install Button */}
+        <div className="pt-1">
+          <button
+            id="download-apk-btn"
+            type="button"
+            onClick={handleDownloadApk}
+            className="w-full py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-extrabold shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+          >
+            <Download className="w-4 h-4" />
+            <span>تحميل وتثبيت التطبيق من Google</span>
+          </button>
+        </div>
       </div>
 
       {/* Store Name */}
@@ -315,6 +424,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* APK Download & Mobile Install Modal */}
+      <ApkDownloadModal
+        isOpen={isApkModalOpen}
+        onClose={() => setIsApkModalOpen(false)}
+        storeName={settings.storeName}
+      />
     </div>
   );
 };

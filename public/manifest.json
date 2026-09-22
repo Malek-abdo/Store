@@ -2,27 +2,40 @@
   "name": "Mobile Store - تطبيق المتجر",
   "short_name": "المتجر",
   "description": "تطبيق إدارة منتجات المتجر مع مساعد ذكاء اصطناعي",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#ffffff",
-  "theme_color": "#1e293b",
+  "theme_color": "#0f172a",
   "dir": "rtl",
   "lang": "ar",
+  "categories": ["shopping", "business"],
   "icons": [
     {
-      "src": "/logo.png",
+      "src": "/icon.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/favicon.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/icon.svg",
       "sizes": "192x192 512x512",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }

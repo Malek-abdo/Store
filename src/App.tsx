@@ -136,8 +136,8 @@ export default function App() {
   const handleSaveProduct = async (
     productData: Omit<Product, 'id' | 'ownerId' | 'createdAt'>,
     editingId?: string
-  ) => {
-    if (!user) return;
+  ): Promise<Product | undefined> => {
+    if (!user) return undefined;
 
     if (editingId) {
       const existing = products.find((p) => p.id === editingId);
@@ -149,6 +149,7 @@ export default function App() {
         };
         await saveProduct(updated);
         setProducts((prev) => prev.map((p) => (p.id === editingId ? updated : p)));
+        return updated;
       }
     } else {
       const newProduct: Product = {
@@ -159,6 +160,7 @@ export default function App() {
       };
       await saveProduct(newProduct);
       setProducts((prev) => [newProduct, ...prev]);
+      return newProduct;
     }
   };
 
@@ -347,7 +349,7 @@ export default function App() {
             </main>
 
             {/* Floating Action Button (FAB) for Quick Add */}
-            <div className="fixed bottom-20 left-6 z-30">
+            <div className="fixed bottom-22 left-5 z-30 sm:left-[calc(50%-230px)]">
               <button
                 id="floating-add-product-btn"
                 type="button"
@@ -355,10 +357,11 @@ export default function App() {
                   setEditingProduct(null);
                   setIsProductModalOpen(true);
                 }}
-                className="w-12 h-12 rounded-full text-white bg-sky-600 hover:bg-sky-700 shadow-md active:scale-95 transition-all flex items-center justify-center cursor-pointer"
-                title="إضافة منتج"
+                className="w-13 h-13 rounded-2xl text-white dark:text-slate-950 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-100 shadow-xl hover:shadow-2xl active:scale-95 transition-all flex items-center justify-center cursor-pointer border border-slate-700/20 dark:border-slate-200/50"
+                title="إضافة منتج جديد"
+                aria-label="إضافة منتج جديد"
               >
-                <Plus className="w-5 h-5" />
+                <Plus className="w-6 h-6" />
               </button>
             </div>
           </div>
@@ -372,6 +375,10 @@ export default function App() {
               products={products}
               primaryColor={currentThemeConfig.primary}
               accentColor={currentThemeConfig.accent}
+              onAddProduct={async (productData) => {
+                return await handleSaveProduct(productData);
+              }}
+              onSwitchToProductsTab={() => setActiveTab('products')}
             />
           </div>
         )}

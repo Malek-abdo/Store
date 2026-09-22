@@ -13,9 +13,11 @@ import {
   X, 
   MessageSquare, 
   Clock, 
-  ChevronDown,
-  Tag,
-  Check
+  ChevronDown, 
+  Tag, 
+  Check, 
+  Cloud, 
+  Image as ImageIcon 
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { ChatMessage, ChatSession, Product, UserProfile } from '../types';
@@ -25,25 +27,32 @@ import {
   saveChatSessions, 
   createNewSession 
 } from '../lib/puter';
+import { uploadImageToImageKit, fileToBase64 } from '../lib/imagekit';
+import { ImageKitProductUploader } from './ImageKitProductUploader';
 
 interface AiAssistantProps {
   user: UserProfile;
   products: Product[];
   primaryColor: string;
   accentColor: string;
+  onAddProduct?: (productData: Omit<Product, 'id' | 'ownerId' | 'createdAt'>) => Promise<Product | undefined | void>;
+  onSwitchToProductsTab?: () => void;
 }
 
 const QUICK_ACTIONS = [
+  { label: 'إضافة منتج مع صورة', icon: '📸', query: 'أضف منتج قميص كتان صيفي فاخر بسعر 135 ج.م ووصف قميص كتان طبيعي خفيف ومريح بتصميم عصري وكمية 15' },
+  { label: 'اقترح وأضف منتج', icon: '💡', query: 'اقترح منتج جديد مناسب لمتجري واضفه الآن مع الاسم والسعر بالجنيه والوصف' },
   { label: 'تفاصيل المنتجات', icon: '📦', query: 'اعرض لي تفاصيل المنتجات المتوفرة في متجري الآن' },
   { label: 'ملخص المخزون', icon: '📊', query: 'أعطني تقرير شامل عن إجمالي المخزون وقيمته' },
   { label: 'نقص المخزون', icon: '⚠️', query: 'ما هي المنتجات التي كميتها أقل من 5 قطع؟' },
   { label: 'وصف تسويقي', icon: '✍️', query: 'اقترح وصف تسويقي جذاب لأحد منتجات المتجر' },
-  { label: 'أفكار مبيعات', icon: '💡', query: 'أعطني 3 أفكار لزيادة المبيعات وتنشيط المتجر' },
 ];
 
 export const AiAssistant: React.FC<AiAssistantProps> = ({
   user,
   products,
+  onAddProduct,
+  onSwitchToProductsTab,
 }) => {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
@@ -54,8 +63,85 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
   const [selectedModel, setSelectedModel] = useState<'claude' | 'gemini'>('claude');
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [copyToast, setCopyToast] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [attachedPreview, setAttachedPreview] = useState<string | null>(null);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAttachImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      return;
+    }
+    try {
+      setAttachedFile(file);
+      const b64 = await fileToBase64(file);
+      setAttachedPreview(b64);
+    } catch (err) {
+      console.error('Failed reading image:', err);
+    }
+  };
+
+  const handlePendingProductAdded = async (msgId: string, productData: Omit<Product, 'id' | 'ownerId' | 'createdAt'>) => {
+    if (!onAddProduct) return;
+    try {
+      const created = await onAddProduct(productData);
+      const actualProduct: Product = (created && 'id' in created) ? (created as Product) : {
+        id: `prod_ai_${Date.now()}`,
+        ownerId: user.uid,
+        ...productData,
+        createdAt: Date.now(),
+      };
+
+      const updated = sessions.map(s => {
+        if (s.id !== activeSession.id) return s;
+        return {
+          ...s,
+          messages: s.messages.map(m => {
+            if (m.id !== msgId) return m;
+            return {
+              ...m,
+              pendingProduct: undefined,
+              addedProduct: actualProduct,
+            };
+          }),
+          updatedAt: Date.now(),
+        };
+      });
+
+      setSessions(updated);
+      await saveChatSessions(user.uid, updated);
+      return actualProduct;
+    } catch (e) {
+      console.error('Failed to add pending product:', e);
+      throw e;
+    }
+  };
+
+  const handleCancelPendingProduct = async (msgId: string) => {
+    const updated = sessions.map(s => {
+      if (s.id !== activeSession.id) return s;
+      return {
+        ...s,
+        messages: s.messages.map(m => {
+          if (m.id !== msgId) return m;
+          return {
+            ...m,
+            pendingProduct: undefined,
+          };
+        }),
+        updatedAt: Date.now(),
+      };
+    });
+    setSessions(updated);
+    await saveChatSessions(user.uid, updated);
+  };
 
   // Load sessions on mount
   useEffect(() => {
@@ -129,18 +215,42 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
   // Send a message
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputVal).trim();
-    if (!text || isLoading || !activeSession) return;
+    if ((!text && !attachedFile) || isLoading || !activeSession) return;
+
+    const currentAttachedFile = attachedFile;
+    setAttachedFile(null);
+    setAttachedPreview(null);
+    setInputVal('');
+    setIsLoading(true);
+
+    let uploadedImageUrl: string | undefined;
+
+    if (currentAttachedFile) {
+      try {
+        setIsUploadingAttachment(true);
+        const up = await uploadImageToImageKit(
+          currentAttachedFile,
+          `chat_${Date.now()}_${currentAttachedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+        );
+        uploadedImageUrl = up.url;
+      } catch (upErr) {
+        console.warn('Failed uploading image attachment to ImageKit:', upErr);
+      } finally {
+        setIsUploadingAttachment(false);
+      }
+    }
 
     const userMsg: ChatMessage = {
       id: `msg_user_${Date.now()}`,
       sender: 'user',
-      text,
+      text: text || '📸 أرفقت صورة للمنتج',
       timestamp: Date.now(),
+      uploadedImageUrl,
     };
 
     // Auto-update session title if it's the first user message
     const isFirstUserMessage = !activeSession.messages.some((m) => m.sender === 'user');
-    const newTitle = isFirstUserMessage ? text.slice(0, 32) : activeSession.title;
+    const newTitle = isFirstUserMessage ? (text || 'محادثة جديدة').slice(0, 32) : activeSession.title;
 
     const updatedMessages = [...activeSession.messages, userMsg];
     const updatedSessions = sessions.map((s) =>
@@ -155,16 +265,49 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
     );
 
     setSessions(updatedSessions);
-    setInputVal('');
-    setIsLoading(true);
 
     try {
-      const reply = await askPuterAI(text, products, updatedMessages);
+      const aiResult = await askPuterAI(text || 'أضف هذا المنتج بهذه الصورة', products, updatedMessages, uploadedImageUrl);
+      let createdProduct: Product | undefined;
+
+      if (aiResult.productToAdd && onAddProduct) {
+        try {
+          const res = await onAddProduct({
+            name: aiResult.productToAdd.name,
+            price: aiResult.productToAdd.price,
+            description: aiResult.productToAdd.description,
+            quantity: aiResult.productToAdd.quantity,
+            category: aiResult.productToAdd.category,
+            imageUrl: aiResult.productToAdd.imageUrl,
+          });
+
+          if (res && 'id' in res) {
+            createdProduct = res as Product;
+          } else {
+            createdProduct = {
+              id: `prod_ai_${Date.now()}`,
+              ownerId: user.uid,
+              name: aiResult.productToAdd.name,
+              price: aiResult.productToAdd.price,
+              description: aiResult.productToAdd.description,
+              quantity: aiResult.productToAdd.quantity,
+              category: aiResult.productToAdd.category,
+              imageUrl: aiResult.productToAdd.imageUrl,
+              createdAt: Date.now(),
+            };
+          }
+        } catch (addErr) {
+          console.error('Failed to auto-add product via AI:', addErr);
+        }
+      }
+
       const assistantMsg: ChatMessage = {
         id: `msg_ai_${Date.now()}`,
         sender: 'assistant',
-        text: reply,
+        text: aiResult.reply,
         timestamp: Date.now(),
+        addedProduct: createdProduct,
+        pendingProduct: aiResult.pendingProduct,
       };
 
       const finalMessages = [...updatedMessages, assistantMsg];
@@ -305,6 +448,38 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                 </span>
               </div>
 
+              {/* Image Attachment Preview if selected */}
+              {attachedPreview && (
+                <div className="p-2 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 flex items-center justify-between animate-in fade-in">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <img
+                      src={attachedPreview}
+                      alt="مرفق"
+                      className="w-10 h-10 rounded-xl object-cover border border-sky-300 dark:border-sky-700 shrink-0"
+                    />
+                    <div className="min-w-0 text-right">
+                      <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                        {attachedFile?.name}
+                      </p>
+                      <p className="text-[10px] text-sky-600 dark:text-sky-400 flex items-center gap-1 font-semibold">
+                        <Cloud className="w-2.5 h-2.5" />
+                        جاهز للرفع السحابي عبر ImageKit CDN
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachedFile(null);
+                      setAttachedPreview(null);
+                    }}
+                    className="p-1 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {/* Textarea */}
               <textarea
                 id="hero-chat-textarea"
@@ -318,8 +493,21 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                   }
                 }}
                 rows={2}
-                placeholder="اسألني عن تفاصيل أي منتج، المخزون، أو خطة تسويقية..."
+                placeholder={
+                  attachedPreview
+                    ? "أضف هذا المنتج بسعر ... ووصف ..."
+                    : "اكتب: 'أضف منتج قميص كتان بسعر 120 ووصف خامة قطنية مريحة' أو اسأل عن المخزون..."
+                }
                 className="w-full resize-none bg-transparent text-slate-900 dark:text-white text-xs sm:text-sm font-medium focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500 leading-relaxed"
+              />
+
+              {/* Hidden file input for attachment */}
+              <input
+                ref={chatFileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAttachImage}
+                className="hidden"
               />
 
               {/* Inside Bottom Actions */}
@@ -368,6 +556,21 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                       </div>
                     )}
                   </div>
+
+                  {/* ImageKit Upload / Attachment Button */}
+                  <button
+                    type="button"
+                    title="إرفاق صورة للمنتج (ImageKit)"
+                    onClick={() => chatFileInputRef.current?.click()}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition-colors cursor-pointer ${
+                      attachedFile
+                        ? 'border-sky-300 bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300'
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60'
+                    }`}
+                  >
+                    <ImageIcon className="w-3 h-3 text-sky-500" />
+                    <span>{attachedFile ? 'تمت إضافة صورة' : 'صورة ImageKit'}</span>
+                  </button>
                 </div>
 
                 {/* Right controls: Mic + Round Send Button from Claude design */}
@@ -378,19 +581,23 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     onClick={() => {
                       setInputVal('تفاصيل المنتجات المتوفرة');
                     }}
-                    className="w-7 h-7 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors"
+                    className="w-9 h-9 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer"
                   >
-                    <Mic className="w-3.5 h-3.5" />
+                    <Mic className="w-4 h-4" />
                   </button>
 
                   <button
                     id="hero-send-message-btn"
                     type="button"
-                    disabled={!inputVal.trim() || isLoading}
+                    disabled={(!inputVal.trim() && !attachedFile) || isLoading || isUploadingAttachment}
                     onClick={() => handleSendMessage()}
-                    className="w-7 h-7 rounded-full bg-slate-800 dark:bg-white text-white dark:text-slate-900 disabled:opacity-30 hover:opacity-90 flex items-center justify-center shadow-xs transition-all cursor-pointer"
+                    className="w-9 h-9 rounded-full bg-slate-800 dark:bg-white text-white dark:text-slate-900 disabled:opacity-30 hover:opacity-90 active:scale-95 flex items-center justify-center shadow-xs transition-all cursor-pointer"
                   >
-                    <ArrowUp className="w-3.5 h-3.5" />
+                    {isUploadingAttachment ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ArrowUp className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -437,7 +644,23 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                     }`}
                   >
                     {isUser ? (
-                      <p className="whitespace-pre-line font-medium text-white">{msg.text}</p>
+                      <div className="space-y-1.5">
+                        {msg.uploadedImageUrl && (
+                          <div className="rounded-xl overflow-hidden border border-white/20">
+                            <img
+                              src={msg.uploadedImageUrl}
+                              alt="صورة مرفقة"
+                              className="max-w-[200px] max-h-48 rounded-xl object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="flex items-center gap-1 text-[10px] text-sky-200 mt-1 px-1">
+                              <Cloud className="w-2.5 h-2.5" />
+                              <span>مرفوعة عبر خوادم ImageKit</span>
+                            </div>
+                          </div>
+                        )}
+                        <p className="whitespace-pre-line font-medium text-white">{msg.text}</p>
+                      </div>
                     ) : (
                       <div className="markdown-body text-xs space-y-1 text-slate-800 dark:text-slate-200">
                         <Markdown
@@ -472,6 +695,77 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                         >
                           {msg.text}
                         </Markdown>
+
+                        {/* Pending Product - ImageKit Upload Required */}
+                        {msg.pendingProduct && (
+                          <ImageKitProductUploader
+                            pendingProduct={msg.pendingProduct}
+                            onProductCreated={async (prodData) => {
+                              return await handlePendingProductAdded(msg.id, prodData);
+                            }}
+                            onCancel={() => handleCancelPendingProduct(msg.id)}
+                            onSwitchToProductsTab={onSwitchToProductsTab}
+                          />
+                        )}
+
+                        {/* Interactive Product Added Card */}
+                        {msg.addedProduct && (
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                            <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-800/60 text-slate-800 dark:text-slate-200 space-y-2.5">
+                              <div className="flex items-center justify-between">
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                                  <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                  تمت إضافة المنتج للمتجر بنجاح
+                                </span>
+                                <span className="text-[11px] px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-extrabold flex items-center gap-1">
+                                  <span>{msg.addedProduct.price.toLocaleString('ar-EG')}</span>
+                                  <span className="text-[10px]">ج.م</span>
+                                </span>
+                              </div>
+
+                              <div className="flex items-start gap-2.5">
+                                {msg.addedProduct.imageUrl && (
+                                  <img
+                                    src={msg.addedProduct.imageUrl}
+                                    alt={msg.addedProduct.name}
+                                    className="w-14 h-14 rounded-lg object-cover border border-emerald-200/60 dark:border-emerald-800/40 shrink-0"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-bold text-slate-900 dark:text-white text-xs truncate">
+                                    {msg.addedProduct.name}
+                                  </h4>
+                                  <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 mt-0.5">
+                                    {msg.addedProduct.description}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                    <span>الكمية: {msg.addedProduct.quantity} قطعة</span>
+                                    <span>•</span>
+                                    <span>التصنيف: {msg.addedProduct.category || 'عام'}</span>
+                                    {msg.addedProduct.imageUrl?.includes('imagekit.io') && (
+                                      <>
+                                        <span>•</span>
+                                        <span className="text-sky-600 dark:text-sky-400 font-medium">ImageKit</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {onSwitchToProductsTab && (
+                                <button
+                                  type="button"
+                                  onClick={onSwitchToProductsTab}
+                                  className="w-full py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer active:scale-98"
+                                >
+                                  <span>عرض في قائمة المنتجات</span>
+                                  <ArrowUp className="w-3 h-3 rotate-45" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                     <span
@@ -511,9 +805,9 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
       {/* Docked Claude-style Input at the Bottom (When in chat conversation) */}
       {hasUserMessages && (
         <div className="p-3 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/80 pb-20 sm:pb-4">
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-2xl mx-auto space-y-2">
             {/* Quick action chips bar */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-1 scrollbar-none">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               {QUICK_ACTIONS.slice(0, 3).map((action, idx) => (
                 <button
                   key={idx}
@@ -525,6 +819,38 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Attached Image Preview in docked bar */}
+            {attachedPreview && (
+              <div className="p-1.5 px-2.5 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 flex items-center justify-between animate-in fade-in">
+                <div className="flex items-center gap-2 min-w-0">
+                  <img
+                    src={attachedPreview}
+                    alt="مرفق"
+                    className="w-8 h-8 rounded-lg object-cover border border-sky-300 dark:border-sky-700 shrink-0"
+                  />
+                  <div className="min-w-0 text-right">
+                    <p className="text-[11px] font-bold text-slate-900 dark:text-white truncate">
+                      {attachedFile?.name}
+                    </p>
+                    <span className="text-[9px] text-sky-600 dark:text-sky-400 font-semibold flex items-center gap-0.5">
+                      <Cloud className="w-2.5 h-2.5" />
+                      جاهز للرفع عبر ImageKit
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachedFile(null);
+                    setAttachedPreview(null);
+                  }}
+                  className="p-1 rounded-full text-slate-400 hover:text-rose-500 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
             {/* Input Box */}
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-2 shadow-sm flex items-end gap-2 focus-within:border-slate-400 dark:focus-within:border-slate-700 transition-colors">
@@ -538,18 +864,35 @@ export const AiAssistant: React.FC<AiAssistantProps> = ({
                   }
                 }}
                 rows={1}
-                placeholder="اكتب سؤالك أو اطلب تفاصيل منتج..."
+                placeholder={attachedPreview ? 'أضف وصف المنتج وسعره...' : 'اكتب سؤالك أو اطلب إضافة منتج...'}
                 className="flex-1 resize-none bg-transparent text-xs text-slate-900 dark:text-white px-2 py-1.5 focus:outline-none placeholder:text-slate-400"
               />
 
-              <div className="flex items-center gap-1 shrink-0 pb-0.5">
+              <div className="flex items-center gap-1.5 shrink-0 pb-0.5">
+                <button
+                  type="button"
+                  title="إرفاق صورة للمنتج (ImageKit)"
+                  onClick={() => chatFileInputRef.current?.click()}
+                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer active:scale-95 ${
+                    attachedFile
+                      ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/80 dark:text-sky-300'
+                      : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <ImageIcon className="w-4 h-4" />
+                </button>
+
                 <button
                   type="button"
                   onClick={() => handleSendMessage()}
-                  disabled={!inputVal.trim() || isLoading}
-                  className="w-7 h-7 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 disabled:opacity-30 flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                  disabled={(!inputVal.trim() && !attachedFile) || isLoading || isUploadingAttachment}
+                  className="w-9 h-9 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 active:scale-95 disabled:opacity-30 flex items-center justify-center transition-all cursor-pointer shadow-xs"
                 >
-                  <ArrowUp className="w-3.5 h-3.5" />
+                  {isUploadingAttachment ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ArrowUp className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>

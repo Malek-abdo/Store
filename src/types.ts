@@ -42,11 +42,22 @@ export interface StoreSettings {
   storeName: string;
 }
 
+export interface PendingProduct {
+  name: string;
+  price: number;
+  description: string;
+  quantity: number;
+  category: string;
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'assistant';
   text: string;
   timestamp: number;
+  addedProduct?: Product;
+  pendingProduct?: PendingProduct;
+  uploadedImageUrl?: string;
 }
 
 export interface ChatSession {
